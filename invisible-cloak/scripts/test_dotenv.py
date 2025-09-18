@@ -22,5 +22,6 @@ if env_path.exists():
 else:
     load_dotenv()  # fallback to default search
 
+# print the paths with all the values in the .env file
 print('CAMERA_RESIZE_WIDTH =', os.getenv('CAMERA_RESIZE_WIDTH'))
 print('FRAME_DELAY =', os.getenv('FRAME_DELAY'))
