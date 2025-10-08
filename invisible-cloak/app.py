@@ -1,109 +1,17 @@
 import streamlit as st
-# NOTE: This Streamlit app runs on the web (browser). We avoid server-side OpenCV
-# to reduce native dependency issues on cloud hosts. Heavy OpenCV code is kept
-# in `src/invisible_cloak.py` for local use.
+import cv2
 import numpy as np
 import os
 import time
-import threading
-from pathlib import Path
+from src.invisible_cloak import InvisibleCloak
 from dotenv import load_dotenv
-try:
-    from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
-    HAVE_WEBRTC = True
-except Exception:
-    HAVE_WEBRTC = False
-import colorsys
-from PIL import Image
 
-# Load environment variables: check app folder first, then `src/.env` as fallback
-base_dir = Path(__file__).resolve().parent
-env_path = base_dir / '.env'
-if not env_path.exists():
-    alt = base_dir / 'src' / '.env'
-    if alt.exists():
-        env_path = alt
-
-if env_path.exists():
-    load_dotenv(dotenv_path=str(env_path))
-else:
-    # fallback to default behavior (searches current working dir and parents)
-    load_dotenv()
+# Load environment variables
+load_dotenv()
 
 # Get performance settings from environment variables
 CAMERA_RESIZE_WIDTH = int(os.getenv('CAMERA_RESIZE_WIDTH', 640))
-# Use a small non-zero default so the main loop yields to other threads
-FRAME_DELAY = max(0.01, float(os.getenv('FRAME_DELAY', 0.01)))
-
-
-class SimpleCloak:
-    """A browser-friendly cloak implementation using PIL + numpy.
-
-    This is intentionally simpler than the OpenCV version and designed to run
-    safely on cloud hosts where native OpenCV wheels or system libs may not be
-    available. It uses RGB-range thresholds for color masking.
-    """
-    PRESETS = {
-        'red':   ((150, 0, 0), (255, 120, 120)),
-        'blue':  ((0, 0, 100), (120, 120, 255)),
-        'green': ((0, 100, 0), (120, 255, 120)),
-        'pink':  ((200, 100, 150), (255, 200, 230)),
-        'yellow':((200, 180, 0), (255, 255, 120)),
-        'orange':((200, 80, 0), (255, 180, 80)),
-        'purple':((120, 40, 120), (200, 140, 200)),
-    }
-
-    def __init__(self):
-        self.background = None
-        self.background_captured = False
-        # default color
-        self.lower_rgb, self.upper_rgb = self.PRESETS['red']
-
-    def capture_background(self, pil_img):
-        # store a copy resized to current frame
-        self.background = pil_img.copy()
-        self.background_captured = True
-        return True
-
-    def set_color_range(self, color_name):
-        name = color_name.lower()
-        if name in self.PRESETS:
-            self.lower_rgb, self.upper_rgb = self.PRESETS[name]
-        return True
-
-    def process_frame(self, pil_img):
-        """Return (pil_output, success)."""
-        if not self.background_captured or self.background is None:
-            return pil_img, False
-
-        # Ensure background matches size
-        if self.background.size != pil_img.size:
-            try:
-                self.background = self.background.resize(pil_img.size, Image.BILINEAR)
-            except Exception:
-                return pil_img, False
-
-        arr = np.array(pil_img)
-        low = np.array(self.lower_rgb, dtype=np.uint8)
-        high = np.array(self.upper_rgb, dtype=np.uint8)
-
-        # Build mask in RGB space
-        mask = ((arr >= low) & (arr <= high)).all(axis=2)
-
-        # Smooth mask a little using small blur on PIL-level
-        mask_pil = Image.fromarray((mask * 255).astype('uint8'))
-        mask_pil = mask_pil.filter(Image.Filter.GaussianBlur(radius=1)) if hasattr(Image, 'Filter') else mask_pil
-        mask = (np.array(mask_pil) > 128)
-
-        bg_arr = np.array(self.background)
-        out = arr.copy()
-        out[mask] = bg_arr[mask]
-        return Image.fromarray(out), True
-
-    def reset(self):
-        self.background = None
-        self.background_captured = False
-        return True
+FRAME_DELAY = float(os.getenv('FRAME_DELAY', 0.0))
 
 # Set page configuration
 st.set_page_config(
@@ -114,25 +22,17 @@ st.set_page_config(
 
 # Initialize session state variables
 if 'cloak' not in st.session_state:
-    st.session_state.cloak = SimpleCloak()
+    st.session_state.cloak = InvisibleCloak()
 
 if 'background_captured' not in st.session_state:
     st.session_state.background_captured = False
 
-# This web app uses the browser webcam (st.camera_input). Server-side camera
-# code (cv2.VideoCapture) is intentionally omitted to avoid native dependency
-# issues on hosted platforms.
-
 if 'camera_started' not in st.session_state:
     st.session_state.camera_started = False
 
-if st.sidebar.button("Start Camera" if not st.session_state.camera_started else "Stop Camera"):
-    st.session_state.camera_started = not st.session_state.camera_started
+if 'camera' not in st.session_state:
+    st.session_state.camera = None
 
-if st.session_state.camera_started and HAVE_WEBRTC:
-    st.sidebar.success("Camera started (WebRTC).")
-elif st.session_state.camera_started and not HAVE_WEBRTC:
-    st.sidebar.warning("streamlit-webrtc is not installed — falling back to manual camera input.")
 # Title and description
 st.title("🧙‍♂️ Invisible Cloak")
 st.markdown("""
@@ -153,17 +53,26 @@ st.sidebar.title("Controls")
 # Camera controls
 camera_placeholder = st.empty()
 
-st.sidebar.info("This app runs in the browser. Use the webcam widget to take a picture or enable Live Processing.")
+# Start/Stop camera button
+if st.sidebar.button("Start Camera" if not st.session_state.camera_started else "Stop Camera"):
+    if st.session_state.camera_started:
+        if st.session_state.camera is not None:
+            st.session_state.camera.release()
+        st.session_state.camera = None
+        st.session_state.camera_started = False
+    else:
+        st.session_state.camera = cv2.VideoCapture(0)
+        st.session_state.camera_started = True
 
-
-# No server-side camera code in the cloud app.
-
-# Background capture button (browser-only app)
-background_button = st.sidebar.button("Capture Background")
+# Background capture button
+background_button = st.sidebar.button(
+    "Capture Background", 
+    disabled=not st.session_state.camera_started
+)
 
 # Reset background button
 reset_button = st.sidebar.button(
-    "Reset Background",
+    "Reset Background", 
     disabled=not st.session_state.background_captured
 )
 
@@ -191,20 +100,18 @@ if selected_color == "Custom":
     st.session_state.cloak.lower_red2 = None
     st.session_state.cloak.upper_red2 = None
     
-    # Show color preview (approximate by mixing min/max RGB)
+    # Show color preview
     st.sidebar.subheader("Color Preview")
-    # Use middle values of the selected RGB range from SimpleCloak presets if available
-    preset = st.session_state.cloak.PRESETS.get('pink') if 'pink' in st.session_state.cloak.PRESETS else None
-    # Build preview from selected_color preset when available
-    try:
-        lower, upper = st.session_state.cloak.PRESETS.get(selected_color.lower(), st.session_state.cloak.PRESETS['red'])
-        lr = np.array(lower, dtype=np.uint8)
-        ur = np.array(upper, dtype=np.uint8)
-        mid = ((lr.astype(int) + ur.astype(int)) // 2).astype(np.uint8)
-        preview = np.ones((100, 100, 3), dtype=np.uint8) * mid.reshape((1, 1, 3))
-        st.sidebar.image(preview, caption="Selected Color", width=100)
-    except Exception:
-        pass
+    # Create a sample color based on the HSV values
+    preview = np.ones((100, 100, 3), dtype=np.uint8)
+    # Use the middle values of the HSV range for preview
+    h = (min_hue + max_hue) // 2
+    s = (min_sat + max_sat) // 2
+    v = (min_val + max_val) // 2
+    preview[:] = (h, s, v)
+    preview_bgr = cv2.cvtColor(preview, cv2.COLOR_HSV2BGR)
+    preview_rgb = cv2.cvtColor(preview_bgr, cv2.COLOR_BGR2RGB)
+    st.sidebar.image(preview_rgb, caption="Selected Color", width=100)
     
     # Add HSV color picker tips
     with st.sidebar.expander("HSV Color Picking Tips"):
@@ -241,128 +148,92 @@ if selected_color:
 # Main display area
 frame_placeholder = st.empty()
 
-# Placeholders to capture and hold images (browser-only)
-browser_capture_placeholder = st.empty()
-browser_background_captured = False
-browser_background = None
-
-# Session flags for browser frame and live processing
-if 'browser_frame' not in st.session_state:
-    st.session_state.browser_frame = None
-
-if 'processing' not in st.session_state:
-    # When True the app will continuously re-run to provide a live view
-    st.session_state.processing = False
-
 # Function to process camera feed
 def process_camera_feed():
-    """Browser-only processing: accept a PIL image from st.camera_input, run SimpleCloak, and display."""
-    cam_upload = browser_capture_placeholder.camera_input("Use your webcam — take a picture to process")
-    pil_img = None
-    if cam_upload is None:
-        pil_img = st.session_state.get('browser_frame')
-        if pil_img is None:
-            return False
-    else:
-        pil_img = Image.open(cam_upload).convert('RGB')
-        st.session_state.browser_frame = pil_img
+    if st.session_state.camera is not None and st.session_state.camera.isOpened():
+        ret, frame = st.session_state.camera.read()
+        if ret:
+            # Flip the frame horizontally for a more intuitive mirror view
+            frame = cv2.flip(frame, 1)
+            
+            # Resize frame for better performance using environment variable settings
+            height, width = frame.shape[:2]
+            if width > CAMERA_RESIZE_WIDTH:
+                scale_factor = CAMERA_RESIZE_WIDTH / width
+                frame = cv2.resize(frame, (int(width * scale_factor), int(height * scale_factor)))
+            
+            # Add color detection helper if enabled
+            if 'show_color_helper' not in st.session_state:
+                st.session_state.show_color_helper = False
+                
+            if st.session_state.show_color_helper and st.session_state.camera_started:
+                # Convert to HSV for color detection
+                hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                
+                # Draw a target circle in the center for color sampling
+                center_x, center_y = frame.shape[1] // 2, frame.shape[0] // 2
+                cv2.circle(frame, (center_x, center_y), 5, (0, 255, 0), 2)
+                
+                # Get the HSV color at the center point
+                center_hsv = hsv_frame[center_y, center_x]
+                h, s, v = center_hsv
+                
+                # Display the HSV values on the frame
+                hsv_text = f"H: {h}, S: {s}, V: {v}"
+                cv2.putText(frame, hsv_text, (center_x + 10, center_y + 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            
+            # Handle background capture button press
+            if background_button:
+                st.session_state.cloak.capture_background(frame.copy())
+                st.session_state.background_captured = True
+                st.sidebar.success("Background captured successfully!")
+            
+            # Handle reset button press
+            if reset_button:
+                st.session_state.cloak.reset()
+                st.session_state.background_captured = False
+                st.sidebar.info("Background reset. Capture a new background.")
+            
+            # Process the frame if background is captured
+            if st.session_state.background_captured:
+                processed_frame, success = st.session_state.cloak.process_frame(frame)
+                if success:
+                    frame = processed_frame
+            
+            # Convert from BGR to RGB for display in Streamlit
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
+            
+            return True
+    return False
 
-    # Color helper (show center RGB value)
-    if st.session_state.get('show_color_helper', False):
-        arr = np.array(pil_img)
-        cy, cx = arr.shape[0] // 2, arr.shape[1] // 2
-        r, g, b = arr[cy, cx].tolist()
-        st.sidebar.markdown(f"**Center RGB:** R={r} G={g} B={b}")
-
-    # Background capture
-    if background_button:
-        st.session_state.cloak.capture_background(pil_img.copy())
-        st.session_state.background_captured = True
-        st.sidebar.success("Background captured successfully!")
-
-    if reset_button:
-        st.session_state.cloak.reset()
-        st.session_state.background_captured = False
-        st.sidebar.info("Background reset. Capture a new background.")
-
-    # Process and display
-    if st.session_state.background_captured:
-        out_pil, ok = st.session_state.cloak.process_frame(pil_img)
-        if ok:
-            frame_to_show = out_pil
+# Main loop
+if st.session_state.camera_started:
+    status_text = st.empty()
+    while process_camera_feed():
+        # Use environment variable for frame delay
+        time.sleep(FRAME_DELAY)
+        
+        # Display status
+        if st.session_state.background_captured:
+            status_text.success("Invisible cloak is active! Hold up your " + selected_color.lower() + " cloth.")
         else:
-            frame_to_show = pil_img
-    else:
-        frame_to_show = pil_img
-
-    frame_placeholder.image(frame_to_show, use_column_width=True)
-    return True
-
-if st.session_state.camera_started and HAVE_WEBRTC:
-    # Provide a transformer that uses SimpleCloak logic on incoming frames
-    class WebRTCTransformer(VideoTransformerBase):
-        def __init__(self):
-            self.cloak = SimpleCloak()
-            self.background_captured = False
-            self.frame_count = 0
-            self.capture_after = 30  # auto-capture background after N frames
-            # default color from UI selection (copied once)
-            try:
-                sel = selected_color
-            except Exception:
-                sel = 'red'
-            self.cloak.set_color_range(sel)
-
-        def transform(self, frame):
-            # frame is an av.VideoFrame; convert to RGB ndarray
-            img = frame.to_ndarray(format='rgb24')
-            self.frame_count += 1
-            if (not self.background_captured) and (self.frame_count >= self.capture_after):
-                try:
-                    # store background as PIL
-                    bg = Image.fromarray(img)
-                    self.cloak.capture_background(bg)
-                    self.background_captured = True
-                except Exception:
-                    pass
-
-            if self.background_captured:
-                try:
-                    # process using SimpleCloak (PIL)
-                    pil = Image.fromarray(img)
-                    out_pil, ok = self.cloak.process_frame(pil)
-                    if ok:
-                        out = np.array(out_pil)
-                        return out
-                except Exception:
-                    pass
-
-            return img
-
-    # Start the streamer (runs in-page)
-    webrtc_streamer(key="webrtc", video_transformer_factory=WebRTCTransformer, media_stream_constraints={"video": True, "audio": False})
-# Processing controls and main-run behavior (Streamlit friendly)
-status_text = st.empty()
-
-# Manual processing controls
-if st.sidebar.button("Process / Refresh Frame"):
-    process_camera_feed()
-
-# Status messaging
-if st.session_state.background_captured:
-    status_text.success("Invisible cloak is active! Hold up your " + selected_color.lower() + " cloth.")
+            status_text.warning("Please capture the background first (make sure you're not in the frame).")
+        
+        # Check if the session state has changed (e.g., if the user has clicked stop)
+        if not st.session_state.camera_started:
+            break
 else:
-    status_text.warning("Please capture the background first (make sure you're not in the frame).")
-
-camera_placeholder.info("Use the webcam widget to take a picture and press 'Process / Refresh Frame' to apply the cloak.")
+    # Display placeholder when camera is not started
+    camera_placeholder.info("Click 'Start Camera' to begin")
 
 # Clean up resources when the app is closed
 def cleanup():
-    # For browser-only app there may be no camera session objects; clear cloak state
-    try:
-        st.session_state.cloak.reset()
-    except Exception:
-        pass
+    if st.session_state.camera is not None:
+        st.session_state.camera.release()
+        st.session_state.camera = None
+        st.session_state.camera_started = False
 
 # Register the cleanup function to be called when the script ends
 import atexit
