@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 from src.invisible_cloak import InvisibleCloak
 from dotenv import load_dotenv
+from PIL import Image
 
 # Load environment variables: check app folder first, then `src/.env` as fallback
 base_dir = Path(__file__).resolve().parent
@@ -66,6 +67,10 @@ st.sidebar.title("Controls")
 
 # Camera controls
 camera_placeholder = st.empty()
+
+# Camera mode: server (uses cv2 on the server) or browser (uses user's webcam via browser)
+camera_mode = st.sidebar.selectbox("Camera Mode", ["Browser (client)", "Server (local)"], index=0,
+                                 help="Browser: uses your browser webcam (asks permission). Server: uses server-side camera (not available on Streamlit Cloud).")
 
 
 class ThreadedCamera:
@@ -226,14 +231,31 @@ if selected_color:
 # Main display area
 frame_placeholder = st.empty()
 
+# For browser mode: placeholders to capture and hold images
+browser_capture_placeholder = st.empty()
+browser_background_captured = False
+browser_background = None
+
 # Function to process camera feed
 def process_camera_feed():
-    if st.session_state.camera is not None:
-        # Use the threaded camera read which returns the latest frame
-        raw = st.session_state.camera.read()
-        if raw is None:
+    # Branch by camera mode
+    if camera_mode == "Server (local)":
+        if st.session_state.camera is not None:
+            # Use the threaded camera read which returns the latest frame
+            raw = st.session_state.camera.read()
+            if raw is None:
+                return False
+            frame = raw
+        else:
             return False
-        frame = raw
+    else:
+        # Browser mode: use st.camera_input to get an image from the user's webcam
+        cam_img = browser_capture_placeholder.camera_input("Take a picture (camera) to use for live processing")
+        if cam_img is None:
+            return False
+        # cam_img is a UploadedFile-like; open with PIL then convert to BGR numpy array for OpenCV
+        pil_img = Image.open(cam_img)
+        frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
         # Flip the frame horizontally for a more intuitive mirror view
         frame = cv2.flip(frame, 1)
@@ -265,12 +287,11 @@ def process_camera_feed():
             cv2.putText(frame, hsv_text, (center_x + 10, center_y + 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-        # Handle background capture button press
-        if background_button:
-            # capture a smaller copy of the frame to minimize memory and processing
-            st.session_state.cloak.capture_background(frame.copy())
-            st.session_state.background_captured = True
-            st.sidebar.success("Background captured successfully!")
+            # Handle background capture button press (applies to both modes)
+            if background_button:
+                st.session_state.cloak.capture_background(frame.copy())
+                st.session_state.background_captured = True
+                st.sidebar.success("Background captured successfully!")
 
         # Handle reset button press
         if reset_button:
