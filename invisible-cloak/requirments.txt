@@ -1,4 +1,4 @@
-opencv-python==4.8.0.76
-numpy==1.24.3
-streamlit==1.26.0
-python-dotenv==1.0.0
+opencv-python
+numpy
+streamlit
+python-dotenv
