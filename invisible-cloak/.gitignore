@@ -1,0 +1,60 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# dotenv files (secrets)
+.env
+src/.env
+*.env
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# Pytest
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# Lockfiles (may contain machine-specific data)
+uv.lock
+*.lock
+
+# Compiled Python files
+src/__pycache__/
+*.pyc
+
+# Coverage
+.coverage
+
+# Keys and certificates
+*.pem
+*.key
+
+# OS generated files
+desktop.ini
