@@ -8,6 +8,11 @@ import time
 import threading
 from pathlib import Path
 from dotenv import load_dotenv
+try:
+    from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+    HAVE_WEBRTC = True
+except Exception:
+    HAVE_WEBRTC = False
 import colorsys
 from PIL import Image
 
@@ -118,6 +123,16 @@ if 'background_captured' not in st.session_state:
 # code (cv2.VideoCapture) is intentionally omitted to avoid native dependency
 # issues on hosted platforms.
 
+if 'camera_started' not in st.session_state:
+    st.session_state.camera_started = False
+
+if st.sidebar.button("Start Camera" if not st.session_state.camera_started else "Stop Camera"):
+    st.session_state.camera_started = not st.session_state.camera_started
+
+if st.session_state.camera_started and HAVE_WEBRTC:
+    st.sidebar.success("Camera started (WebRTC).")
+elif st.session_state.camera_started and not HAVE_WEBRTC:
+    st.sidebar.warning("streamlit-webrtc is not installed — falling back to manual camera input.")
 # Title and description
 st.title("🧙‍♂️ Invisible Cloak")
 st.markdown("""
@@ -283,6 +298,49 @@ def process_camera_feed():
     frame_placeholder.image(frame_to_show, use_column_width=True)
     return True
 
+if st.session_state.camera_started and HAVE_WEBRTC:
+    # Provide a transformer that uses SimpleCloak logic on incoming frames
+    class WebRTCTransformer(VideoTransformerBase):
+        def __init__(self):
+            self.cloak = SimpleCloak()
+            self.background_captured = False
+            self.frame_count = 0
+            self.capture_after = 30  # auto-capture background after N frames
+            # default color from UI selection (copied once)
+            try:
+                sel = selected_color
+            except Exception:
+                sel = 'red'
+            self.cloak.set_color_range(sel)
+
+        def transform(self, frame):
+            # frame is an av.VideoFrame; convert to RGB ndarray
+            img = frame.to_ndarray(format='rgb24')
+            self.frame_count += 1
+            if (not self.background_captured) and (self.frame_count >= self.capture_after):
+                try:
+                    # store background as PIL
+                    bg = Image.fromarray(img)
+                    self.cloak.capture_background(bg)
+                    self.background_captured = True
+                except Exception:
+                    pass
+
+            if self.background_captured:
+                try:
+                    # process using SimpleCloak (PIL)
+                    pil = Image.fromarray(img)
+                    out_pil, ok = self.cloak.process_frame(pil)
+                    if ok:
+                        out = np.array(out_pil)
+                        return out
+                except Exception:
+                    pass
+
+            return img
+
+    # Start the streamer (runs in-page)
+    webrtc_streamer(key="webrtc", video_transformer_factory=WebRTCTransformer, media_stream_constraints={"video": True, "audio": False})
 # Processing controls and main-run behavior (Streamlit friendly)
 status_text = st.empty()
 
