@@ -1,0 +1,92 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# PyBuilder
+target/
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+*.iml
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
+# Model files - consider using Git LFS for large model files
+# If you want to keep the model files out of the repo, uncomment these lines:
+# face-emotion-detector/models/*.pth
+# face-emotion-detector/models/*.pt
+# face-emotion-detector/models/*.bin
+# finger-counter/models/*.pth
+# finger-counter/models/*.pt
+# invisible-cloak/models/*.pth
+# invisible-cloak/models/*.pt
+
+# Streamlit state
+.streamlit/
+
+# OS generated files
+.DS_Store
+._*

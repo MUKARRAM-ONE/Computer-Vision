@@ -1,103 +1,108 @@
 # Finger Counter Application
 
 This application uses computer vision techniques to detect hands and count extended fingers in real-time. It leverages MediaPipe for hand landmark detection and OpenCV for image processing.
+# Finger Counter
+
+A real-time finger counting and gesture recognition project using MediaPipe and OpenCV. The repository contains three main implementations:
+
+- Basic finger counter: `finger_counter.py`
+- Advanced finger counter with extra gestures and visualizations: `advanced_finger_counter.py`
+- Streamlit web interface: `streamlit_app.py`
+
+## Table of Contents
+
+- Overview
+- Features
+- Requirements
+- Installation
+- Usage
+- How it works
+- Controls
+- Troubleshooting
+- Future improvements
+
+## Overview
+
+This project detects hands in a webcam feed, computes hand landmarks using MediaPipe, and counts extended fingers per hand. The Streamlit version provides a configurable web UI for experimenting with thresholds and visualization options.
 
 ## Features
 
 - Real-time hand detection and finger counting
-- Multiple application versions:
-  - Basic finger counter (`finger_counter.py`)
-  - Advanced finger counter with gesture recognition (`advanced_finger_counter.py`)
-  - Interactive Streamlit web interface (`streamlit_app.py`)
-- Multi-hand detection and total finger counting (up to 2 hands simultaneously)
-- Gesture recognition for common hand gestures
-- Visualization of hand landmarks and finger status
-- Performance metrics (FPS counter)
+- Multi-hand support (up to 2 hands)
+- Gesture recognition (fist, peace, thumbs up, OK, etc.)
+- Visual landmarks overlay and FPS counter
+- Streamlit-based web interface for easy experimentation
 
 ## Requirements
 
-The application requires the following packages:
+Install the packages listed below (see `requirements.txt` inside this folder):
 
-- opencv-python>=4.5.0
-- mediapipe>=0.8.9
-- numpy>=1.19.0
-- streamlit>=1.10.0 (for the web interface version)
+- opencv-python >= 4.5.0
+- mediapipe >= 0.8.9
+- numpy >= 1.19.0
+- streamlit >= 1.10.0 (only required for the Streamlit app)
 
 ## Installation
 
-1. Make sure you have Python installed (Python 3.8 or higher recommended)
-2. Install the required packages:
+1. Create and activate a virtual environment (recommended):
 
-```bash
-pip install opencv-python mediapipe numpy streamlit
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+2. Install dependencies:
+
+```powershell
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-### Basic Finger Counter
+Run the basic finger counter:
 
-Run the basic finger counter application:
-
-```bash
+```powershell
 python finger_counter.py
 ```
 
-### Advanced Finger Counter
+Run the advanced finger counter:
 
-Run the advanced finger counter with gesture recognition:
-
-```bash
+```powershell
 python advanced_finger_counter.py
 ```
 
-### Streamlit Web Interface
+Run the Streamlit web interface:
 
-Run the interactive web interface:
-
-```bash
+```powershell
 streamlit run streamlit_app.py
 ```
 
-## How It Works
+## How it works
 
-### Hand Detection
-
-The application uses MediaPipe Hands to detect hand landmarks in the camera feed. MediaPipe provides 21 landmarks for each hand, representing different points on the hand (fingertips, joints, etc.).
-
-### Finger Counting Logic
-
-The finger counting logic works as follows:
-
-1. **Thumb**: The thumb is considered extended if its tip is to the right of the thumb MCP joint (for right hand) or to the left (for left hand).
-2. **Other fingers**: A finger is considered extended if its tip is above its PIP joint (the second joint from the tip).
-
-### Gesture Recognition
-
-The advanced version includes recognition of common gestures:
-
-- **Fist**: All fingers closed
-- **One/Index**: Only index finger extended
-- **Peace/Victory**: Index and middle fingers extended
-- **Three**: Index, middle, and ring fingers extended
-- **Four**: All fingers except thumb extended
-- **Five/Open Hand**: All fingers extended
-- **Special gestures**: Thumbs up, thumbs down, OK sign, rock sign, pinch
+1. Capture frames from the webcam using OpenCV.
+2. Detect hand landmarks using MediaPipe Hands (21 landmarks per hand).
+3. For each hand, determine which fingers are extended using simple geometric rules:
+   - Thumb: compared against thumb MCP joint and relative hand orientation
+   - Other fingers: tip position relative to PIP joint
+4. Aggregate counts and (optionally) recognize gestures based on finger combinations.
 
 ## Controls
 
-- Press 'q' to quit the application (for OpenCV windows)
-- Use the sidebar controls in the Streamlit version to adjust settings
+- Press `q` to quit (OpenCV windows). 
+- Use the Streamlit UI to change detection confidence, enable/disable landmark overlays, and switch visualization modes.
 
 ## Troubleshooting
 
-- If the hand detection is not working well, try adjusting the lighting in your environment
-- Make sure your hand is clearly visible in the camera frame
-- Adjust the detection confidence threshold in the Streamlit version if needed
-- For better performance, ensure your computer meets the minimum requirements for running MediaPipe
+- Poor detection quality: improve lighting and ensure the hand is within the camera frame.
+- Slow performance: lower the frame resolution or use a faster machine.
+- Detection not starting: confirm camera permissions and correct index being used (0, 1, etc.).
 
-## Future Improvements
+## Future improvements
 
-- Support for multiple hands with individual finger counting
-- More advanced gesture recognition
-- Custom gesture training capability
-- Integration with other applications via API
+- Add custom gesture training and export functionality
+- Improve robustness with temporal smoothing and tracking
+- Add unit tests and CI for code quality
+
+## License
+
+Add a LICENSE file to the repository root to declare the project license (MIT, Apache-2.0, etc.).

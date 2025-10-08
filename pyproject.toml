@@ -1,0 +1,15 @@
+[project]
+name = "computer-vision"
+version = "0.1.0"
+description = "Computer Vision is a field of Artificial Intelligence that enables machines to interpret and understand visual information from the world. It combines image processing, machine learning, and deep learning to allow systems to detect, track, and recognize objects, faces, gestures, and scenes from images or video streams."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.10.6",
+    "numpy>=2.2.6",
+    "opencv-python>=4.5.0",
+    "pandas>=2.3.3",
+    "plotly>=6.3.1",
+    "streamlit>=1.50.0",
+    "torch>=2.8.0",
+]
