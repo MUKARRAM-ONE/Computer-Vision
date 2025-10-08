@@ -5,7 +5,6 @@ import os
 import time
 import threading
 from pathlib import Path
-from src.invisible_cloak import InvisibleCloak
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -27,6 +26,128 @@ else:
 CAMERA_RESIZE_WIDTH = int(os.getenv('CAMERA_RESIZE_WIDTH', 640))
 # Use a small non-zero default so the main loop yields to other threads
 FRAME_DELAY = max(0.01, float(os.getenv('FRAME_DELAY', 0.01)))
+
+
+class InvisibleCloak:
+    """Lightweight invisible cloak processor optimized for low-latency use.
+
+    Designed to work with already-resized frames (keeps processing small).
+    """
+    def __init__(self):
+        # Default color range for red cloak (supports wrap-around with two ranges)
+        self.lower_red = np.array([0, 120, 70])
+        self.upper_red = np.array([10, 255, 255])
+        self.lower_red2 = np.array([170, 120, 70])
+        self.upper_red2 = np.array([180, 255, 255])
+
+        # Background frame (should match processed frame size)
+        self.background = None
+        self.background_captured = False
+
+        # Small kernel for faster morphological ops
+        self._kernel = np.ones((2, 2), np.uint8)
+
+    def capture_background(self, frame):
+        """Capture the background frame (store a copy sized to the incoming frame)."""
+        # store a copy so external changes don't affect background
+        self.background = frame.copy()
+        self.background_captured = True
+        return True
+
+    def set_color_range(self, color_name):
+        """Set some handy presets for cloak colors."""
+        name = color_name.lower()
+        if name == 'red':
+            self.lower_red = np.array([0, 120, 70])
+            self.upper_red = np.array([10, 255, 255])
+            self.lower_red2 = np.array([170, 120, 70])
+            self.upper_red2 = np.array([180, 255, 255])
+        elif name == 'blue':
+            self.lower_red = np.array([100, 150, 0])
+            self.upper_red = np.array([140, 255, 255])
+            self.lower_red2 = None
+            self.upper_red2 = None
+        elif name == 'green':
+            self.lower_red = np.array([40, 100, 50])
+            self.upper_red = np.array([80, 255, 255])
+            self.lower_red2 = None
+            self.upper_red2 = None
+        elif name in ('pink', 'light pink', 'hot pink', 'pastel pink'):
+            self.lower_red = np.array([140, 30, 100])
+            self.upper_red = np.array([170, 255, 255])
+            self.lower_red2 = None
+            self.upper_red2 = None
+        elif name in ('sky blue', 'light blue'):
+            self.lower_red = np.array([90, 50, 100])
+            self.upper_red = np.array([110, 255, 255])
+            self.lower_red2 = None
+            self.upper_red2 = None
+        elif name == 'yellow':
+            self.lower_red = np.array([20, 100, 100])
+            self.upper_red = np.array([40, 255, 255])
+            self.lower_red2 = None
+            self.upper_red2 = None
+        elif name == 'orange':
+            self.lower_red = np.array([10, 100, 100])
+            self.upper_red = np.array([25, 255, 255])
+            self.lower_red2 = None
+            self.upper_red2 = None
+        elif name == 'purple':
+            self.lower_red = np.array([125, 50, 50])
+            self.upper_red = np.array([150, 255, 255])
+            self.lower_red2 = None
+            self.upper_red2 = None
+        return True
+
+    def process_frame(self, frame):
+        """Process a frame and return (output_frame, success).
+
+        The method is optimized for speed: expects `frame` to be reasonably small
+        (e.g., width around 640 or less). It ensures the background matches
+        the incoming frame size and uses minimal morphology.
+        """
+        if not self.background_captured or self.background is None:
+            return frame, False
+
+        # make sure background size matches incoming frame
+        if self.background.shape != frame.shape:
+            try:
+                self.background = cv2.resize(self.background, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_LINEAR)
+            except Exception:
+                # if resize fails, return original frame to avoid crashes
+                return frame, False
+
+        # Convert to HSV (fast)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Create mask for primary range
+        mask = cv2.inRange(hsv, self.lower_red, self.upper_red)
+
+        # If a wrap-around range exists (for red), include it
+        if getattr(self, 'lower_red2', None) is not None and getattr(self, 'upper_red2', None) is not None:
+            mask2 = cv2.inRange(hsv, self.lower_red2, self.upper_red2)
+            mask = cv2.bitwise_or(mask, mask2)
+
+        # Fast morphological cleaning: small kernel and single pass
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self._kernel)
+
+        # Optional smoothing to reduce blockiness while keeping it fast
+        mask = cv2.GaussianBlur(mask, (3, 3), 0)
+
+        # Inverse mask for foreground
+        mask_inv = cv2.bitwise_not(mask)
+
+        # Combine frames using masks
+        res1 = cv2.bitwise_and(frame, frame, mask=mask_inv)
+        res2 = cv2.bitwise_and(self.background, self.background, mask=mask)
+        final_output = cv2.addWeighted(res1, 1, res2, 1, 0)
+
+        return final_output, True
+
+    def reset(self):
+        self.background = None
+        self.background_captured = False
+        return True
 
 # Set page configuration
 st.set_page_config(
@@ -148,14 +269,15 @@ if st.sidebar.button("Start Camera" if not st.session_state.camera_started else 
         st.session_state.camera_started = True
 
 # Background capture button
+# Enabled for Browser mode (no server camera required). For Server mode, require camera started.
 background_button = st.sidebar.button(
-    "Capture Background", 
-    disabled=not st.session_state.camera_started
+    "Capture Background",
+    disabled=(camera_mode == "Server (local)" and not st.session_state.camera_started)
 )
 
 # Reset background button
 reset_button = st.sidebar.button(
-    "Reset Background", 
+    "Reset Background",
     disabled=not st.session_state.background_captured
 )
 
@@ -236,103 +358,115 @@ browser_capture_placeholder = st.empty()
 browser_background_captured = False
 browser_background = None
 
+# Session flags for browser frame and live processing
+if 'browser_frame' not in st.session_state:
+    st.session_state.browser_frame = None
+
+if 'processing' not in st.session_state:
+    # When True the app will continuously re-run to provide a live view
+    st.session_state.processing = False
+
 # Function to process camera feed
 def process_camera_feed():
-    # Branch by camera mode
+    """Process one frame from either server camera or browser camera_input.
+
+    Returns True if a frame was displayed, False otherwise.
+    """
+    frame = None
+
+    # 1) Acquire frame depending on mode
     if camera_mode == "Server (local)":
-        if st.session_state.camera is not None:
-            # Use the threaded camera read which returns the latest frame
-            raw = st.session_state.camera.read()
-            if raw is None:
-                return False
-            frame = raw
-        else:
+        cam = st.session_state.get('camera')
+        if cam is None:
             return False
+        raw = cam.read()
+        if raw is None:
+            return False
+        frame = raw
     else:
-        # Browser mode: use st.camera_input to get an image from the user's webcam
-        cam_img = browser_capture_placeholder.camera_input("Take a picture (camera) to use for live processing")
-        if cam_img is None:
-            return False
-        # cam_img is a UploadedFile-like; open with PIL then convert to BGR numpy array for OpenCV
-        pil_img = Image.open(cam_img)
-        frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-
-        # Flip the frame horizontally for a more intuitive mirror view
-        frame = cv2.flip(frame, 1)
-
-        # Resize frame for better performance using environment variable settings
-        height, width = frame.shape[:2]
-        if width > CAMERA_RESIZE_WIDTH:
-            scale_factor = CAMERA_RESIZE_WIDTH / width
-            frame = cv2.resize(frame, (int(width * scale_factor), int(height * scale_factor)), interpolation=cv2.INTER_LINEAR)
-
-        # Add color detection helper if enabled
-        if 'show_color_helper' not in st.session_state:
-            st.session_state.show_color_helper = False
-
-        if st.session_state.show_color_helper and st.session_state.camera_started:
-            # Convert to HSV for color detection
-            hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-            # Draw a target circle in the center for color sampling
-            center_x, center_y = frame.shape[1] // 2, frame.shape[0] // 2
-            cv2.circle(frame, (center_x, center_y), 5, (0, 255, 0), 2)
-
-            # Get the HSV color at the center point
-            center_hsv = hsv_frame[center_y, center_x]
-            h, s, v = center_hsv
-
-            # Display the HSV values on the frame
-            hsv_text = f"H: {h}, S: {s}, V: {v}"
-            cv2.putText(frame, hsv_text, (center_x + 10, center_y + 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-
-            # Handle background capture button press (applies to both modes)
-            if background_button:
-                st.session_state.cloak.capture_background(frame.copy())
-                st.session_state.background_captured = True
-                st.sidebar.success("Background captured successfully!")
-
-        # Handle reset button press
-        if reset_button:
-            st.session_state.cloak.reset()
-            st.session_state.background_captured = False
-            st.sidebar.info("Background reset. Capture a new background.")
-
-        # Process the frame if background is captured
-        if st.session_state.background_captured:
-            processed_frame, success = st.session_state.cloak.process_frame(frame)
-            if success:
-                frame = processed_frame
-
-        # Convert from BGR to RGB for display in Streamlit
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
-
-        return True
-    return False
-
-# Main loop
-if st.session_state.camera_started:
-    status_text = st.empty()
-    # Keep processing as long as camera runs
-    while st.session_state.camera_started:
-        active = process_camera_feed()
-        # Use environment variable for frame delay (small sleep to yield)
-        time.sleep(FRAME_DELAY)
-
-        # Display status
-        if st.session_state.background_captured:
-            status_text.success("Invisible cloak is active! Hold up your " + selected_color.lower() + " cloth.")
+        # Browser: camera_input may be used as a snapshot upload
+        cam_upload = browser_capture_placeholder.camera_input("Use your webcam — take a picture to process")
+        if cam_upload is None:
+            # If there's a previously stored browser frame, reuse it
+            frame = st.session_state.browser_frame
+            if frame is None:
+                return False
         else:
-            status_text.warning("Please capture the background first (make sure you're not in the frame).")
+            pil_img = Image.open(cam_upload).convert('RGB')
+            frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            # store last browser frame for re-runs
+            st.session_state.browser_frame = frame
 
-        # If camera stopped externally, break
-        if not st.session_state.camera_started:
-            break
+    # 2) Normalize frame (flip, resize)
+    try:
+        frame = cv2.flip(frame, 1)
+    except Exception:
+        pass
+
+    h, w = frame.shape[:2]
+    if w > CAMERA_RESIZE_WIDTH:
+        scale = CAMERA_RESIZE_WIDTH / w
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_LINEAR)
+
+    # 3) Color helper
+    if st.session_state.get('show_color_helper', False):
+        hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        cx, cy = frame.shape[1] // 2, frame.shape[0] // 2
+        cv2.circle(frame, (cx, cy), 5, (0, 255, 0), 2)
+        ch, cs, cvv = hsv_frame[cy, cx]
+        hsv_text = f"H: {ch}, S: {cs}, V: {cvv}"
+        cv2.putText(frame, hsv_text, (cx + 10, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+    # 4) Handle background capture & reset
+    if background_button:
+        st.session_state.cloak.capture_background(frame.copy())
+        st.session_state.background_captured = True
+        st.sidebar.success("Background captured successfully!")
+
+    if reset_button:
+        st.session_state.cloak.reset()
+        st.session_state.background_captured = False
+        st.sidebar.info("Background reset. Capture a new background.")
+
+    # 5) Process frame if background captured
+    if st.session_state.background_captured:
+        processed, ok = st.session_state.cloak.process_frame(frame)
+        if ok:
+            frame = processed
+
+    # 6) Display
+    try:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    except Exception:
+        rgb = frame
+    frame_placeholder.image(rgb, channels="RGB", use_column_width=True)
+
+    return True
+
+# Processing controls and main-run behavior (Streamlit friendly)
+status_text = st.empty()
+
+# Live processing toggle (works for both modes)
+live_toggle = st.sidebar.checkbox("Live Processing (auto-refresh)", value=st.session_state.get('processing', False))
+st.session_state.processing = live_toggle
+
+# Process one frame per run
+frame_shown = process_camera_feed()
+
+# Status messaging
+if st.session_state.background_captured:
+    status_text.success("Invisible cloak is active! Hold up your " + selected_color.lower() + " cloth.")
+else:
+    status_text.warning("Please capture the background first (make sure you're not in the frame).")
+
+# If live processing is enabled, sleep a bit and rerun the app to emulate a live feed
+if st.session_state.processing:
+    time.sleep(FRAME_DELAY)
+    # Re-run the script to fetch/process the next frame
+    st.experimental_rerun()
 else:
     # Display placeholder when camera is not started
-    camera_placeholder.info("Click 'Start Camera' to begin")
+    camera_placeholder.info("Click 'Start Camera' to begin (Server mode) or switch to Browser mode to use your webcam in the browser")
 
 # Clean up resources when the app is closed
 def cleanup():
