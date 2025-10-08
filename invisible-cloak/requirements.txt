@@ -1,0 +1,8 @@
+opencv-python-headless==4.8.0.76
+numpy==1.24.3
+streamlit==1.26.0
+python-dotenv==1.0.0
+
+# Notes:
+# - Use `opencv-python-headless` for server/cloud deployments (no GUI support).
+# - If you need GUI features locally, install `opencv-python` in your dev env only.
